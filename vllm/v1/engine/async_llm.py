@@ -716,10 +716,19 @@ class AsyncLLM(EngineClient):
         """Abort RequestId in OutputProcessor and EngineCore."""
 
         request_ids = (
-            (request_id,) if isinstance(request_id, str) else as_list(request_id)
+            [request_id] if isinstance(request_id, str) else as_list(request_id)
         )
-        all_request_ids = self.output_processor.abort_requests(request_ids, internal)
+        iteration_stats = IterationStats() if self.log_stats else None
+        all_request_ids = self.output_processor.abort_requests(
+            request_ids, internal, iteration_stats
+        )
         await self.engine_core.abort_requests_async(all_request_ids)
+
+        if self.logger_manager and iteration_stats is not None:
+            self.logger_manager.record(
+                scheduler_stats=None,
+                iteration_stats=iteration_stats,
+            )
 
         if self.log_requests:
             logger.info("Aborted request(s) %s.", ",".join(request_ids))
