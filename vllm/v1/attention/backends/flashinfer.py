@@ -170,9 +170,10 @@ class BatchDCPPrefillWrapper:
     def __init__(
         self,
         workspace_buffer: torch.Tensor | None = None,
+        backend: str = "auto",
     ):
         self._context = BatchPrefillWithPagedKVCacheWrapper(
-            workspace_buffer, get_kv_cache_layout()
+            workspace_buffer, get_kv_cache_layout(), backend=backend
         )
         self._new_tokens = BatchPrefillWithRaggedKVCacheWrapper(
             workspace_buffer, get_kv_cache_layout()
@@ -696,13 +697,21 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
         self,
     ) -> BatchPrefillWithPagedKVCacheWrapper | BatchDCPPrefillWrapper:
         if self._prefill_wrapper is None:
+            # When batch invariance is enabled, force the FA2 backend so that
+            # fixed_split_size and disable_split_kv parameters are honoured.
+            # The FA3 backend (auto-selected on SM90a / H100) silently ignores
+            # these parameters, breaking batch invariance guarantees.
+            backend = "fa2" if vllm_is_batch_invariant() else "auto"
             if self.use_dcp:
                 self._prefill_wrapper = BatchDCPPrefillWrapper(
                     workspace_buffer=self._get_workspace_buffer(),
+                    backend=backend,
                 )
             else:
                 self._prefill_wrapper = BatchPrefillWithPagedKVCacheWrapper(
-                    self._get_workspace_buffer(), get_kv_cache_layout()
+                    self._get_workspace_buffer(),
+                    get_kv_cache_layout(),
+                    backend=backend,
                 )
         assert self._prefill_wrapper is not None
         return self._prefill_wrapper
@@ -722,6 +731,11 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
                 paged_kv_indptr = None
                 paged_kv_indices = None
                 paged_kv_last_page_len = None
+            # When batch invariance is enabled, force the FA2 backend so that
+            # fixed_split_size and disable_split_kv parameters are honoured.
+            # For the decode path with non-FP8 types, "auto" already resolves
+            # to "fa2", but we set it explicitly for safety.
+            backend = "fa2" if vllm_is_batch_invariant() else "auto"
             decode_wrapper = BatchDecodeWithPagedKVCacheWrapper(
                 self._get_workspace_buffer(),
                 get_kv_cache_layout(),
@@ -733,6 +747,7 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
                 # at least as good as cuda cores for all attention ops in latest
                 # gpus.
                 use_tensor_cores=True,
+                backend=backend,
             )
 
             # save the decode wrapper

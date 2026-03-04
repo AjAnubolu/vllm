@@ -1009,9 +1009,12 @@ def override_envs_for_invariance(
         AttentionBackendEnum.TRITON_ATTN,
     ]
     supported_backends = decode_invariant_backends + [
-        # FlashInfer temporarily disabled due to invariant CTA sizes.
-        # See FlashInfer issue #2424
-        # AttentionBackendEnum.FLASHINFER,
+        # FlashInfer uses FA2 backend with fixed split sizes when batch
+        # invariance is enabled.  Note: CTA tile sizing in FlashInfer's
+        # split-kv reduction may still be influenced by batch composition
+        # (see FlashInfer issue #2424), so full prefill-decode invariance
+        # is not guaranteed.  Decode-only invariance works correctly.
+        AttentionBackendEnum.FLASHINFER,
         AttentionBackendEnum.FLASH_ATTN_MLA,
         AttentionBackendEnum.TRITON_MLA,
         # Not yet supported MLA backends
